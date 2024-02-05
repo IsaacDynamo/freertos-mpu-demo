@@ -1,8 +1,10 @@
+// Missing defines and macros from timers.h
+// Macros have been converted with LLM assistance to inline functions
 #![allow(dead_code)]
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
-use crate::bindings::*;
+use crate::gen::*;
 
 const tmrCOMMAND_EXECUTE_CALLBACK_FROM_ISR: BaseType_t = -2;
 const tmrCOMMAND_EXECUTE_CALLBACK: BaseType_t = -1;

@@ -1,6 +1,8 @@
+// Missing macros from task.h
+// Macros have been converted with LLM assistance to inline functions
 #![allow(non_snake_case)]
 
-use crate::bindings::*;
+use crate::gen::*;
 
 #[inline]
 pub unsafe fn xTaskNotify(
