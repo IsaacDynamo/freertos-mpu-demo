@@ -298,9 +298,9 @@ fn main() {
     let config = Arc::new(Mutex::new(config));
 
     let bindings = builder
-        .clang_arg(format!("-I../../freertos-main"))
+        .clang_arg(format!("-I.."))
         .clang_arg(format!("-I../FreeRTOS-Kernel/include"))
-        .clang_arg(format!("-I../FreeRTOS-Kernel/portable/GCC/ARM_CM3_MPU"))
+        .clang_arg(format!("-I../FreeRTOS-Kernel/portable/GCC/ARM_CM4_MPU"))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .parse_callbacks(Box::new(Callbacks(config.clone())))
         .use_core()
