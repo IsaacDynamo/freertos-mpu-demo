@@ -48,7 +48,7 @@ const HEADERS: &[&str] = &[
 const PUBLIC: &[&str] = &[
     "configMINIMAL_STACK_SIZE",
 
-
+    "BaseType_t",
     "UBaseType_t",
     "StackType_t",
     "TaskHandle_t",
@@ -127,34 +127,40 @@ const PUBLIC: &[&str] = &[
     "vTaskStepTick",
 
     // Task Notifications
-    // Provided by task.rs
-    // "xTaskNotifyGive()", "xTaskNotifyGiveIndexed()",
-    // "vTaskNotifyGiveFromISR()", "vTaskNotifyGiveIndexedFromISR()",
-    // "ulTaskNotifyTake()", "ulTaskNotifyTakeIndexed()",
-    // "xTaskNotify()", "xTaskNotifyIndexed()",
-    // "xTaskNotifyAndQuery()", "xTaskNotifyAndQueryIndexed()",
-    // "xTaskNotifyAndQueryFromISR", "xTaskNotifyAndQueryFromISRIndexed()",
-    // "xTaskNotifyFromISR()", "xTaskNotifyFromISRIndexed()",
-    // "xTaskNotifyWait()", "xTaskNotifyWaitIndexed()",
-    // "xTaskNotifyStateClear()", "xTaskNotifyStateClearIndexed()",
-    // "ulTasknotifyValueClear()", "ulTasknotifyValueClearIndexed()",
+    /* Provided by task.rs
+    "xTaskNotifyGive()", "xTaskNotifyGiveIndexed()",
+    "vTaskNotifyGiveFromISR()", "vTaskNotifyGiveIndexedFromISR()",
+    "ulTaskNotifyTake()", "ulTaskNotifyTakeIndexed()",
+    "xTaskNotify()", "xTaskNotifyIndexed()",
+    "xTaskNotifyAndQuery()", "xTaskNotifyAndQueryIndexed()",
+    "xTaskNotifyAndQueryFromISR", "xTaskNotifyAndQueryFromISRIndexed()",
+    "xTaskNotifyFromISR()", "xTaskNotifyFromISRIndexed()",
+    "xTaskNotifyWait()", "xTaskNotifyWaitIndexed()",
+    "xTaskNotifyStateClear()", "xTaskNotifyStateClearIndexed()",
+    "ulTasknotifyValueClear()", "ulTasknotifyValueClearIndexed()",
+    */
 
     // Queue Management
+    /* Provided by queue.rs
     "xQueueCreate",
     "xQueueCreateStatic",
-    "vQueueDelete",
     "xQueueSend",
     "xQueueSendFromISR",
     "xQueueSendToBack",
     "xQueueSendToBackFromISR",
     "xQueueSendToFront",
     "xQueueSendToFrontFromISR",
+    "xQueueReset",
+    "xQueueOverwrite",
+    "xQueueOverwriteFromISR",
+    "xQueueGetStaticBuffers",
+    */
+    "vQueueDelete",
     "xQueueReceive",
     "xQueueReceiveFromISR",
     "uxQueueMessagesWaiting",
     "uxQueueMessagesWaitingFromISR",
     "uxQueueSpacesAvailable",
-    "xQueueReset",
     "xQueuePeek",
     "xQueuePeekFromISR",
     "vQueueAddToRegistry",
@@ -162,9 +168,6 @@ const PUBLIC: &[&str] = &[
     "vQueueUnregisterQueue",
     "xQueueIsQueueEmptyFromISR",
     "xQueueIsQueueFullFromISR",
-    "xQueueOverwrite",
-    "xQueueOverwriteFromISR",
-    "xQueueGetStaticBuffers",
 
     // Queue Set
     "xQueueCreateSet",
@@ -174,6 +177,7 @@ const PUBLIC: &[&str] = &[
     "xQueueSelectFromSetFromISR",
 
     // Stream Buffers
+    /* TODO
     "xStreamBufferCreate",
     "xStreamBufferCreateStatic",
     "xStreamBufferSend",
@@ -188,8 +192,10 @@ const PUBLIC: &[&str] = &[
     "xStreamBufferIsEmpty",
     "xStreamBufferIsFull",
     "xStreamBufferGetStaticBuffers",
+    */
 
     // Message Buffers
+    /* TODO
     "xMessageBufferCreate",
     "xMessageBufferCreateStatic",
     "xMessageBufferSend",
@@ -202,30 +208,32 @@ const PUBLIC: &[&str] = &[
     "xMessageBufferIsEmpty",
     "xMessageBufferIsFull",
     "xMessageBufferGetStaticBuffers",
+    */
 
     // Semaphores
-    // Implemented in semaphore.rs
-    // "xSemaphoreCreateBinary",
-    // "xSemaphoreCreateBinaryStatic",
-    // "vSemaphoreCreateBinary",
-    // "xSemaphoreCreateCounting",
-    // "xSemaphoreCreateCountingStatic",
-    // "xSemaphoreCreateMutex",
-    // "xSemaphoreCreateMutexStatic",
-    // "xSemaphoreCreateRecursiveMutex",
-    // "xSemaphoreCreateRecursiveMutexStatic",
-    // "vSemaphoreDelete",
-    // "xSemaphoreGetMutexHolder",
-    // "xSemaphoreGetMutexHolderFromISR",
-    // "xSemaphoreTake",
-    // "xSemaphoreTakeFromISR",
-    // "xSemaphoreTakeRecursive",
-    // "xSemaphoreGive",
-    // "xSemaphoreGiveRecursive",
-    // "xSemaphoreGiveFromISR",
-    // "uxSemaphoreGetCount",
-    // "uxSemaphoreGetCountFromISR",
-    // "xSemaphoreGetStaticBuffer",
+    /* Implemented in semaphore.rs
+    "xSemaphoreCreateBinary",
+    "xSemaphoreCreateBinaryStatic",
+    "vSemaphoreCreateBinary",
+    "xSemaphoreCreateCounting",
+    "xSemaphoreCreateCountingStatic",
+    "xSemaphoreCreateMutex",
+    "xSemaphoreCreateMutexStatic",
+    "xSemaphoreCreateRecursiveMutex",
+    "xSemaphoreCreateRecursiveMutexStatic",
+    "vSemaphoreDelete",
+    "xSemaphoreGetMutexHolder",
+    "xSemaphoreGetMutexHolderFromISR",
+    "xSemaphoreTake",
+    "xSemaphoreTakeFromISR",
+    "xSemaphoreTakeRecursive",
+    "xSemaphoreGive",
+    "xSemaphoreGiveRecursive",
+    "xSemaphoreGiveFromISR",
+    "uxSemaphoreGetCount",
+    "uxSemaphoreGetCountFromISR",
+    "xSemaphoreGetStaticBuffer",
+    */
 
     // Software Timer
     "xTimerCreate",
@@ -234,16 +242,17 @@ const PUBLIC: &[&str] = &[
     "pvTimerGetTimerID",
     "pcTimerGetName",
     "vTimerSetReloadMode",
-    // Implemented in timers.rs
-    // "xTimerStart",
-    // "xTimerStop",
-    // "xTimerChangePeriod",
-    // "xTimerDelete",
-    // "xTimerReset",
-    // "xTimerStartFromISR",
-    // "xTimerStopFromISR",
-    // "xTimerChangePeriodFromISR",
-    // "xTimerResetFromISR",
+    /* Implemented in timers.rs
+    "xTimerStart",
+    "xTimerStop",
+    "xTimerChangePeriod",
+    "xTimerDelete",
+    "xTimerReset",
+    "xTimerStartFromISR",
+    "xTimerStopFromISR",
+    "xTimerChangePeriodFromISR",
+    "xTimerResetFromISR",
+    */
     "pvTimerGetTimerID",
     "vTimerSetTimerID",
     "xTimerGetTimerDaemonTaskHandle",
