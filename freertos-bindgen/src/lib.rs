@@ -26,8 +26,8 @@ pub use access::*;
 pub const pdFALSE: BaseType_t = 0;
 pub const pdTRUE: BaseType_t = 1;
 
-pub const pdPASS: BaseType_t = pdFALSE;
-pub const pdFAIL: BaseType_t = pdTRUE;
+pub const pdFAIL: BaseType_t = pdFALSE;
+pub const pdPASS: BaseType_t = pdTRUE;
 
 // Include build.rs generated public re-exports
 include!(concat!(env!("OUT_DIR"), "/public.rs"));
