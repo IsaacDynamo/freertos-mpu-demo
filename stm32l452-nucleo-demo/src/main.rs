@@ -1,23 +1,22 @@
 #![no_main]
 #![no_std]
-
 //#![warn(unsafe_op_in_unsafe_fn)]
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
 use cortex_m_rt::{entry, exception, ExceptionFrame};
+use panic_rtt_target as _;
+use rtt_target::rprint;
+use rtt_target::rprintln;
 use stm32l4xx_hal as hal;
 use stm32l4xx_hal::prelude::*;
 
-use cortex_m_semihosting::{hprint, hprintln};
-use core::format_args;
 use core::concat;
+use core::default::Default;
+use core::format_args;
 use core::mem::size_of;
 use core::mem::MaybeUninit;
 use core::ptr::null;
-use core::default::Default;
-
-use panic_semihosting as _;
 
 use freertos_bindgen::gen::QueueHandle_t;
 use freertos_bindgen::*;
@@ -32,6 +31,8 @@ fn as_void_mut<T>(ptr: &mut T) -> *mut core::ffi::c_void {
 
 #[entry]
 fn entry() -> ! {
+    rtt_target::rtt_init_print!();
+
     let p = hal::stm32::Peripherals::take().unwrap();
     let mut flash = p.FLASH.constrain();
     let mut rcc = p.RCC.constrain();
@@ -63,41 +64,35 @@ fn entry() -> ! {
         static __sidata: u32;
     }
 
-    // hprintln!("flash {:08x?}-{:08x?}", unsafe { &__FLASH_segment_start__ as *const u32 }, unsafe { &__FLASH_segment_end__ as *const u32 });
-    // hprintln!("sram  {:08x?}-{:08x?}", unsafe { &__SRAM_segment_start__ as *const u32 }, unsafe { &__SRAM_segment_end__ as *const u32 });
-    // hprintln!("func  {:08x?}-{:08x?}", unsafe { &__privileged_functions_start__ as *const u32 }, unsafe { &__privileged_functions_end__ as *const u32 });
-    // hprintln!("data  {:08x?}-{:08x?}", unsafe { &__privileged_data_start__ as *const u32 }, unsafe { &__privileged_data_end__ as *const u32 });
-    // hprintln!("scall {:08x?}-{:08x?}", unsafe { &__syscalls_flash_start__ as *const u32 }, unsafe { &__syscalls_flash_end__ as *const u32 });
+    rprintln!("flash {:08x?}-{:08x?}", unsafe { &__FLASH_segment_start__ as *const u32 }, unsafe { &__FLASH_segment_end__ as *const u32 });
+    rprintln!("sram  {:08x?}-{:08x?}", unsafe { &__SRAM_segment_start__ as *const u32 }, unsafe { &__SRAM_segment_end__ as *const u32 });
+    rprintln!("func  {:08x?}-{:08x?}", unsafe { &__privileged_functions_start__ as *const u32 }, unsafe { &__privileged_functions_end__ as *const u32 });
+    rprintln!("data  {:08x?}-{:08x?}", unsafe { &__privileged_data_start__ as *const u32 }, unsafe { &__privileged_data_end__ as *const u32 });
+    rprintln!("scall {:08x?}-{:08x?}", unsafe { &__syscalls_flash_start__ as *const u32 }, unsafe { &__syscalls_flash_end__ as *const u32 });
 
-    // hprintln!("bss   {:08x?}-{:08x?}", unsafe { &__sbss as *const u32 }, unsafe { &__ebss as *const u32 });
-    // hprintln!("data  {:08x?}-{:08x?}", unsafe { &__sdata as *const u32 }, unsafe { &__edata as *const u32 });
-    // hprintln!("idata {:08x?}", unsafe { &__sidata as *const u32 });
+    rprintln!("bss   {:08x?}-{:08x?}", unsafe { &__sbss as *const u32 }, unsafe { &__ebss as *const u32 });
+    rprintln!("data  {:08x?}-{:08x?}", unsafe { &__sdata as *const u32 }, unsafe { &__edata as *const u32 });
+    rprintln!("idata {:08x?}", unsafe { &__sidata as *const u32 });
 
-    // fn idletaskmem() -> (u32, u32, u32) {
+    fn idletaskmem() -> (u32, u32, u32) {
+        let mut task = core::ptr::null_mut::<freertos_bindgen::StaticTask_t>();
+        let mut stack = core::ptr::null_mut::<freertos_bindgen::StackType_t>();
+        let mut size = 0;
+        unsafe { vApplicationGetIdleTaskMemory(&mut task, &mut stack, &mut size) };
+        (task as u32, stack as u32, size)
+    }
 
-    //     let mut task = core::ptr::null_mut::<freertos_bindgen::StaticTask_t>();
-    //     let mut stack = core::ptr::null_mut::<freertos_bindgen::StackType_t>();
-    //     let mut size = 0;
+    fn timertaskmem() -> (u32, u32, u32) {
+        let mut task = core::ptr::null_mut::<freertos_bindgen::StaticTask_t>();
+        let mut stack = core::ptr::null_mut::<freertos_bindgen::StackType_t>();
+        let mut size = 0;
+        unsafe { vApplicationGetTimerTaskMemory(&mut task, &mut stack, &mut size) };
+        (task as u32, stack as u32, size)
+    }
 
-    //     unsafe { vApplicationGetIdleTaskMemory(&mut task, &mut stack, &mut size) };
-
-    //     (task as u32, stack as u32, size)
-    // }
-
-    // fn timertaskmem() -> (u32, u32, u32) {
-
-    //     let mut task = core::ptr::null_mut::<freertos_bindgen::StaticTask_t>();
-    //     let mut stack = core::ptr::null_mut::<freertos_bindgen::StackType_t>();
-    //     let mut size = 0;
-
-    //     unsafe { vApplicationGetTimerTaskMemory(&mut task, &mut stack, &mut size) };
-
-    //     (task as u32, stack as u32, size)
-    // }
-
-    // hprintln!("idle  {:x?}", idletaskmem());
-    // hprintln!("timer {:x?}", timertaskmem());
-    hprintln!("main:");
+    rprintln!("idle  {:x?}", idletaskmem());
+    rprintln!("timer {:x?}", timertaskmem());
+    rprintln!("main:");
     unsafe {
         #[link_section = "privileged_data"]
         static mut tickTaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
@@ -108,10 +103,16 @@ fn entry() -> ! {
         static mut exampleTaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
         #[link_section = "privileged_data"]
-        static mut queue_static_storage: StaticQueue_t = unsafe { MaybeUninit::zeroed().assume_init() };
+        static mut queue_static_storage: StaticQueue_t =
+            unsafe { MaybeUninit::zeroed().assume_init() };
         static mut queue_buffer: [u8; 10] = [0; 10];
 
-        let queue = xQueueCreateStatic(10, size_of::<u8>() as u32, &mut queue_buffer as *mut u8, &mut queue_static_storage);
+        let queue = xQueueCreateStatic(
+            10,
+            size_of::<u8>() as u32,
+            &mut queue_buffer as *mut u8,
+            &mut queue_static_storage,
+        );
         assert!(!queue.is_null());
 
         unsafe extern "C" fn privileged_fn(arg: *mut ::core::ffi::c_void) {
@@ -122,17 +123,19 @@ fn entry() -> ! {
                 assert!(rc == pdPASS);
                 let b = [b];
                 let c = core::str::from_utf8(&b).unwrap();
-                hprint!("{}", c);
+                rprint!("{}", c);
             }
         }
 
-        let privileged_task = xTaskCreateStatic( Some(privileged_fn), //exampleTask,
-                        null(),
-                        configMINIMAL_STACK_SIZE,
-                        queue as *mut core::ffi::c_void,
-                        gen::configMAX_PRIORITIES - 1,
-                        &mut exampleTaskStack.0[0],
-                        &mut exampleTaskTCB);
+        let privileged_task = xTaskCreateStatic(
+            Some(privileged_fn), //exampleTask,
+            null(),
+            configMINIMAL_STACK_SIZE,
+            queue as *mut core::ffi::c_void,
+            gen::configMAX_PRIORITIES - 1,
+            &mut exampleTaskStack.0[0],
+            &mut exampleTaskTCB,
+        );
 
         assert!(!privileged_task.is_null());
 
@@ -150,7 +153,7 @@ fn entry() -> ! {
         }
 
         let def = TaskParameters_t {
-            pvTaskCode:  Some(unprivileged_fn),
+            pvTaskCode: Some(unprivileged_fn),
             pcName: null(),
             usStackDepth: configMINIMAL_STACK_SIZE as usize,
             pvParameters: queue as *mut core::ffi::c_void,
@@ -170,7 +173,7 @@ fn entry() -> ! {
         vTaskStartScheduler();
     }
 
-    loop { }
+    loop {}
 }
 
 // Bring symbols in from FreeRTOS, so the will populate the interrupt vector table.
@@ -185,7 +188,10 @@ extern "C" {
 struct MinStack([StackType_t; configMINIMAL_STACK_SIZE as usize]);
 
 #[no_mangle]
-pub unsafe extern "C" fn vApplicationStackOverflowHook( _xTask: TaskHandle_t, _pcTaskName: *const core::ffi::c_char ) {
+pub unsafe extern "C" fn vApplicationStackOverflowHook(
+    _xTask: TaskHandle_t,
+    _pcTaskName: *const core::ffi::c_char,
+) {
     panic!("vApplicationStackOverflowHook");
 }
 
@@ -193,8 +199,8 @@ pub unsafe extern "C" fn vApplicationStackOverflowHook( _xTask: TaskHandle_t, _p
 pub unsafe extern "C" fn vApplicationGetIdleTaskMemory(
     ppxIdleTaskTCBBuffer: *mut *mut StaticTask_t,
     ppxIdleTaskStackBuffer: *mut *mut StackType_t,
-    pulIdleTaskStackSize: *mut u32
-){
+    pulIdleTaskStackSize: *mut u32,
+) {
     #[link_section = "privileged_data"]
     static mut TaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
     static mut TaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
@@ -208,8 +214,8 @@ pub unsafe extern "C" fn vApplicationGetIdleTaskMemory(
 pub unsafe extern "C" fn vApplicationGetTimerTaskMemory(
     ppxTimerTaskTCBBuffer: *mut *mut StaticTask_t,
     ppxTimerTaskStackBuffer: *mut *mut StackType_t,
-    pulTimerTaskStackSize: *mut u32
-){
+    pulTimerTaskStackSize: *mut u32,
+) {
     #[link_section = "privileged_data"]
     static mut TaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
     static mut TaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
@@ -219,16 +225,15 @@ pub unsafe extern "C" fn vApplicationGetTimerTaskMemory(
     *pulTimerTaskStackSize = configMINIMAL_STACK_SIZE;
 }
 
-
 #[exception]
 unsafe fn HardFault(frame: &ExceptionFrame) -> ! {
-    hprintln!("HardFault");
-    hprintln!("{:?}", frame);
+    rprintln!("HardFault");
+    rprintln!("{:?}", frame);
     loop {}
 }
 
 #[exception]
 unsafe fn MemoryManagement() -> ! {
-    hprintln!("MemoryManagement");
+    rprintln!("MemoryManagement");
     loop {}
 }

@@ -22,6 +22,7 @@ rustflags = [
   # "--print", "link-args",
   "-C", "link-arg=-Map=output.map",
 ]
+runner = "probe-rs.exe run --chip STM32L452RETx"
 
 [profile.release]
 opt-level = "z"  # Optimize for size.
