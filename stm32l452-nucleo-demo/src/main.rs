@@ -5,12 +5,17 @@
 #![allow(non_snake_case)]
 
 use cortex_m_rt::{entry, exception, ExceptionFrame};
+use hal::gpio::Output;
+use hal::gpio::Pin;
+use hal::gpio::PushPull;
+use hal::gpio::L8;
 use panic_rtt_target as _;
 use rtt_target::rprint;
 use rtt_target::rprintln;
 use stm32l4xx_hal as hal;
 use stm32l4xx_hal::prelude::*;
-
+use critical_section::Mutex;
+use core::cell::Cell;
 use core::concat;
 use core::default::Default;
 use core::format_args;
@@ -21,12 +26,20 @@ use core::ptr::null;
 use freertos_bindgen::gen::QueueHandle_t;
 use freertos_bindgen::*;
 
+static LED: Mutex<Cell<Option<Pin<Output<PushPull>, L8, 'A', 5>>>> = Mutex::new(Cell::new(None));
+
 fn as_void<T>(ptr: &T) -> *const core::ffi::c_void {
     ptr as *const T as *const core::ffi::c_void
 }
 
 fn as_void_mut<T>(ptr: &mut T) -> *mut core::ffi::c_void {
     ptr as *mut T as *mut core::ffi::c_void
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Command {
+    PutChar(u8),
+    SetLed(bool),
 }
 
 #[entry]
@@ -44,6 +57,12 @@ fn entry() -> ! {
         .pclk1(80.MHz())
         .pclk2(80.MHz())
         .freeze(&mut flash.acr, &mut pwr);
+
+    let mut gpioa = p.GPIOA.split(&mut rcc.ahb2);
+    let led = gpioa.pa5.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    critical_section::with(|cs| {
+        LED.borrow(cs).replace(Some(led))
+    });
 
     extern "C" {
         static __FLASH_segment_start__: u32;
@@ -105,25 +124,36 @@ fn entry() -> ! {
         #[link_section = "privileged_data"]
         static mut queue_static_storage: StaticQueue_t =
             unsafe { MaybeUninit::zeroed().assume_init() };
-        static mut queue_buffer: [u8; 10] = [0; 10];
+        static mut queue_buffer: [Command; 10] = [Command::PutChar(0); 10];
 
         let queue = xQueueCreateStatic(
             10,
-            size_of::<u8>() as u32,
-            &mut queue_buffer as *mut u8,
+            size_of::<Command>() as u32,
+            &mut queue_buffer as *mut Command as *mut u8,
             &mut queue_static_storage,
         );
         assert!(!queue.is_null());
 
         unsafe extern "C" fn privileged_fn(arg: *mut ::core::ffi::c_void) {
             let queue = arg as QueueHandle_t;
+            let mut led = critical_section::with(|cs| {
+                LED.borrow(cs).take().unwrap()
+            });
+
             loop {
-                let mut b: u8 = Default::default();
-                let rc = xQueueReceive(queue, as_void_mut(&mut b), 0xFFFFFFFF);
+                let mut cmd: Command = Command::PutChar(0);
+                let rc = xQueueReceive(queue, as_void_mut(&mut cmd), 0xFFFFFFFF);
                 assert!(rc == pdPASS);
-                let b = [b];
-                let c = core::str::from_utf8(&b).unwrap();
-                rprint!("{}", c);
+
+                match cmd {
+                    Command::PutChar(b) => {
+                        let b = [b];
+                        let c = core::str::from_utf8(&b).unwrap();
+                        rprint!("{}", c);
+                    },
+                    Command::SetLed(false)  => led.set_low(),
+                    Command::SetLed(true) => led.set_high(),
+                }
             }
         }
 
@@ -145,10 +175,17 @@ fn entry() -> ! {
             let queue = arg as QueueHandle_t;
             loop {
                 vTaskDelay(1000);
+                let cmd = Command::SetLed(true);
+                let rc = xQueueSend(queue, as_void(&cmd), 0xFFFFFFFF);
+                assert!(rc == pdPASS);
                 for b in "Hello world!\n".bytes() {
-                    let rc = xQueueSend(queue, as_void(&b), 0xFFFFFFFF);
+                    let cmd = Command::PutChar(b);
+                    let rc = xQueueSend(queue, as_void(&cmd), 0xFFFFFFFF);
                     assert!(rc == pdPASS);
                 }
+                let cmd = Command::SetLed(false);
+                let rc = xQueueSend(queue, as_void(&cmd), 0xFFFFFFFF);
+                assert!(rc == pdPASS);
             }
         }
 
