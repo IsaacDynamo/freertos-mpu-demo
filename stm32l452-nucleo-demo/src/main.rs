@@ -1,17 +1,16 @@
 #![no_main]
 #![no_std]
-//#![warn(unsafe_op_in_unsafe_fn)]
+#![warn(unsafe_op_in_unsafe_fn)]
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
+mod wrapper;
+use wrapper::*;
+
 use cortex_m_rt::{entry, exception, ExceptionFrame};
-use hal::gpio::Output;
-use hal::gpio::Pin;
-use hal::gpio::PushPull;
-use hal::gpio::L8;
+use hal::gpio::{Output, Pin, PushPull, L8};
 use panic_rtt_target as _;
-use rtt_target::rprint;
-use rtt_target::rprintln;
+use rtt_target::{rprint, rprintln};
 use stm32l4xx_hal as hal;
 use stm32l4xx_hal::prelude::*;
 use critical_section::Mutex;
@@ -19,22 +18,14 @@ use core::cell::Cell;
 use core::concat;
 use core::default::Default;
 use core::format_args;
-use core::mem::size_of;
 use core::mem::MaybeUninit;
 use core::ptr::null;
-
-use freertos_bindgen::gen::QueueHandle_t;
 use freertos_bindgen::*;
+use static_cell::StaticCell;
 
 static LED: Mutex<Cell<Option<Pin<Output<PushPull>, L8, 'A', 5>>>> = Mutex::new(Cell::new(None));
 
-fn as_void<T>(ptr: &T) -> *const core::ffi::c_void {
-    ptr as *const T as *const core::ffi::c_void
-}
-
-fn as_void_mut<T>(ptr: &mut T) -> *mut core::ffi::c_void {
-    ptr as *mut T as *mut core::ffi::c_void
-}
+static QUEUE: Mutex<Cell<Option<QueueHandle<Command>>>> = Mutex::new(Cell::new(None));
 
 #[derive(Debug, Clone, Copy)]
 enum Command {
@@ -112,105 +103,94 @@ fn entry() -> ! {
     rprintln!("idle  {:x?}", idletaskmem());
     rprintln!("timer {:x?}", timertaskmem());
     rprintln!("main:");
-    unsafe {
-        #[link_section = "privileged_data"]
-        static mut tickTaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
-        static mut tickTaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
-        #[link_section = "privileged_data"]
-        static mut exampleTaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
-        static mut exampleTaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
+    #[link_section = "privileged_data"]
+    static mut tickTaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
+    static mut tickTaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
-        #[link_section = "privileged_data"]
-        static mut queue_static_storage: StaticQueue_t =
-            unsafe { MaybeUninit::zeroed().assume_init() };
-        static mut queue_buffer: [Command; 10] = [Command::PutChar(0); 10];
+    #[link_section = "privileged_data"]
+    static mut exampleTaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
+    static mut exampleTaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
-        let queue = xQueueCreateStatic(
-            10,
-            size_of::<Command>() as u32,
-            &mut queue_buffer as *mut Command as *mut u8,
-            &mut queue_static_storage,
-        );
-        assert!(!queue.is_null());
+    #[link_section = "privileged_data"]
+    static mut queue_static_storage: StaticQueue_t =
+        unsafe { MaybeUninit::zeroed().assume_init() };
 
-        unsafe extern "C" fn privileged_fn(arg: *mut ::core::ffi::c_void) {
-            let queue = arg as QueueHandle_t;
-            let mut led = critical_section::with(|cs| {
-                LED.borrow(cs).take().unwrap()
-            });
+    static QUEUE_BUFFER: StaticCell<[Command; 10]> = StaticCell::new();
+    let queue_buffer = QUEUE_BUFFER.init_with(|| [Command::PutChar(0); 10]);
 
-            loop {
-                let mut cmd: Command = Command::PutChar(0);
-                let rc = xQueueReceive(queue, as_void_mut(&mut cmd), 0xFFFFFFFF);
-                assert!(rc == pdPASS);
+    let queue = queue_create_static(unsafe{&mut queue_static_storage}, queue_buffer).unwrap();
+    critical_section::with(|cs| {
+        QUEUE.borrow(cs).set(Some(queue));
+    });
 
-                match cmd {
-                    Command::PutChar(b) => {
-                        let b = [b];
-                        let c = core::str::from_utf8(&b).unwrap();
-                        rprint!("{}", c);
-                    },
-                    Command::SetLed(false)  => led.set_low(),
-                    Command::SetLed(true) => led.set_high(),
-                }
-            }
-        }
+    let privileged_task = unsafe{xTaskCreateStatic(
+        Some(privileged_fn),
+        b"privileged_task\0".as_ptr().cast(),
+        configMINIMAL_STACK_SIZE,
+        core::ptr::null_mut(),
+        gen::configMAX_PRIORITIES - 1,
+        &mut exampleTaskStack.0[0],
+        &mut exampleTaskTCB,
+    )};
+    assert!(!privileged_task.is_null());
 
-        let privileged_task = xTaskCreateStatic(
-            Some(privileged_fn), //exampleTask,
-            null(),
-            configMINIMAL_STACK_SIZE,
-            queue as *mut core::ffi::c_void,
-            gen::configMAX_PRIORITIES - 1,
-            &mut exampleTaskStack.0[0],
-            &mut exampleTaskTCB,
-        );
+    let def = TaskParameters_t {
+        pvTaskCode: Some(unprivileged_fn),
+        pcName: b"unprivileged_task\0".as_ptr().cast(),
+        usStackDepth: configMINIMAL_STACK_SIZE as usize,
+        pvParameters: unsafe{core::mem::transmute(queue)},
+        uxPriority: 1,
+        puxStackBuffer: unsafe{&mut tickTaskStack.0[0]},
+        xRegions: [MemoryRegion_t::default(); 3],
+        pxTaskBuffer: unsafe{&mut tickTaskTCB},
+    };
 
-        assert!(!privileged_task.is_null());
+    let mut unprivileged_task: TaskHandle_t = unsafe{MaybeUninit::zeroed().assume_init()};
+    let rc = unsafe{xTaskCreateRestrictedStatic(&def, &mut unprivileged_task)};
+    assert!(rc == pdPASS);
 
-        vGrantAccessToQueue(privileged_task, queue);
+    queue.grant_access(privileged_task);
+    queue.grant_access(unprivileged_task);
 
-        unsafe extern "C" fn unprivileged_fn(arg: *mut core::ffi::c_void) {
-            let queue = arg as QueueHandle_t;
-            loop {
-                vTaskDelay(1000);
-                let cmd = Command::SetLed(true);
-                let rc = xQueueSend(queue, as_void(&cmd), 0xFFFFFFFF);
-                assert!(rc == pdPASS);
-                for b in "Hello world!\n".bytes() {
-                    let cmd = Command::PutChar(b);
-                    let rc = xQueueSend(queue, as_void(&cmd), 0xFFFFFFFF);
-                    assert!(rc == pdPASS);
-                }
-                let cmd = Command::SetLed(false);
-                let rc = xQueueSend(queue, as_void(&cmd), 0xFFFFFFFF);
-                assert!(rc == pdPASS);
-            }
-        }
-
-        let def = TaskParameters_t {
-            pvTaskCode: Some(unprivileged_fn),
-            pcName: null(),
-            usStackDepth: configMINIMAL_STACK_SIZE as usize,
-            pvParameters: queue as *mut core::ffi::c_void,
-            uxPriority: 1,
-            puxStackBuffer: &mut tickTaskStack.0[0],
-            xRegions: [MemoryRegion_t::default(); 3],
-            pxTaskBuffer: &mut tickTaskTCB,
-        };
-
-        let mut unprivileged_task: TaskHandle_t = MaybeUninit::zeroed().assume_init();
-        let rc = xTaskCreateRestrictedStatic(&def, &mut unprivileged_task);
-        assert!(rc == pdPASS);
-
-        vGrantAccessToQueue(unprivileged_task, queue);
-
-        /* Start the scheduler. */
-        vTaskStartScheduler();
-    }
-
+    start_scheduler();
     loop {}
+}
+
+unsafe extern "C" fn unprivileged_fn(arg: *mut core::ffi::c_void) {
+    // TODO: add some decent way to inject arguments.
+    // Side channel via QUEUE doesn't work because QUEUE is not in this threads accessible memory
+    // let queue = critical_section::with(|cs| QUEUE.borrow(cs).get()).unwrap();
+    let queue: QueueHandle<Command> = unsafe{core::mem::transmute(arg)};
+
+    loop {
+        delay(1000);
+        queue.send(Command::SetLed(true)).unwrap();
+        for b in "Hello world!\n".bytes() {
+            queue.send(Command::PutChar(b)).unwrap();
+        }
+        queue.send(Command::SetLed(false)).unwrap();
+    }
+}
+
+unsafe extern "C" fn privileged_fn(_arg: *mut ::core::ffi::c_void) {
+    let (mut led, queue) = critical_section::with(|cs| {(
+        LED.borrow(cs).take().unwrap(),
+        QUEUE.borrow(cs).get().unwrap()
+    )});
+
+    loop {
+        let cmd = queue.receive().unwrap();
+        match cmd {
+            Command::PutChar(b) => {
+                let b = [b];
+                let c = core::str::from_utf8(&b).unwrap();
+                rprint!("{}", c);
+            },
+            Command::SetLed(false) => led.set_low(),
+            Command::SetLed(true) => led.set_high(),
+        }
+    }
 }
 
 // Bring symbols in from FreeRTOS, so the will populate the interrupt vector table.
@@ -242,9 +222,11 @@ pub unsafe extern "C" fn vApplicationGetIdleTaskMemory(
     static mut TaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
     static mut TaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
-    *ppxIdleTaskTCBBuffer = &mut TaskTCB as *mut StaticTask_t;
-    *ppxIdleTaskStackBuffer = &mut TaskStack.0[0] as *mut StackType_t;
-    *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
+    unsafe {
+        *ppxIdleTaskTCBBuffer = &mut TaskTCB as *mut StaticTask_t;
+        *ppxIdleTaskStackBuffer = &mut TaskStack.0[0] as *mut StackType_t;
+        *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
+    }
 }
 
 #[no_mangle]
@@ -257,9 +239,11 @@ pub unsafe extern "C" fn vApplicationGetTimerTaskMemory(
     static mut TaskTCB: StaticTask_t = unsafe { MaybeUninit::zeroed().assume_init() };
     static mut TaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
-    *ppxTimerTaskTCBBuffer = &mut TaskTCB as *mut StaticTask_t;
-    *ppxTimerTaskStackBuffer = &mut TaskStack.0[0] as *mut StackType_t;
-    *pulTimerTaskStackSize = configMINIMAL_STACK_SIZE;
+    unsafe {
+        *ppxTimerTaskTCBBuffer = &mut TaskTCB as *mut StaticTask_t;
+        *ppxTimerTaskStackBuffer = &mut TaskStack.0[0] as *mut StackType_t;
+        *pulTimerTaskStackSize = configMINIMAL_STACK_SIZE;
+    }
 }
 
 #[exception]
