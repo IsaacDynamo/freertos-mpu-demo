@@ -19,7 +19,7 @@ use core::concat;
 use core::default::Default;
 use core::format_args;
 use core::mem::MaybeUninit;
-use core::ptr::null;
+use core::ptr::addr_of_mut;
 use freertos_bindgen::*;
 use static_cell::StaticCell;
 
@@ -130,8 +130,8 @@ fn entry() -> ! {
         configMINIMAL_STACK_SIZE,
         core::ptr::null_mut(),
         gen::configMAX_PRIORITIES - 1,
-        &mut exampleTaskStack.0[0],
-        &mut exampleTaskTCB,
+        addr_of_mut!(exampleTaskStack.0[0]),
+        addr_of_mut!(exampleTaskTCB),
     )};
     assert!(!privileged_task.is_null());
 
@@ -141,9 +141,9 @@ fn entry() -> ! {
         usStackDepth: configMINIMAL_STACK_SIZE as usize,
         pvParameters: unsafe{core::mem::transmute(queue)},
         uxPriority: 1,
-        puxStackBuffer: unsafe{&mut tickTaskStack.0[0]},
+        puxStackBuffer: unsafe{addr_of_mut!(tickTaskStack.0[0])},
         xRegions: [MemoryRegion_t::default(); 3],
-        pxTaskBuffer: unsafe{&mut tickTaskTCB},
+        pxTaskBuffer: unsafe{addr_of_mut!(tickTaskTCB)},
     };
 
     let mut unprivileged_task: TaskHandle_t = unsafe{MaybeUninit::zeroed().assume_init()};
@@ -223,8 +223,8 @@ pub unsafe extern "C" fn vApplicationGetIdleTaskMemory(
     static mut TaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
     unsafe {
-        *ppxIdleTaskTCBBuffer = &mut TaskTCB as *mut StaticTask_t;
-        *ppxIdleTaskStackBuffer = &mut TaskStack.0[0] as *mut StackType_t;
+        *ppxIdleTaskTCBBuffer = addr_of_mut!(TaskTCB);
+        *ppxIdleTaskStackBuffer = addr_of_mut!(TaskStack.0[0]);
         *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
     }
 }
@@ -240,8 +240,8 @@ pub unsafe extern "C" fn vApplicationGetTimerTaskMemory(
     static mut TaskStack: MinStack = MinStack([0; configMINIMAL_STACK_SIZE as usize]);
 
     unsafe {
-        *ppxTimerTaskTCBBuffer = &mut TaskTCB as *mut StaticTask_t;
-        *ppxTimerTaskStackBuffer = &mut TaskStack.0[0] as *mut StackType_t;
+        *ppxTimerTaskTCBBuffer = addr_of_mut!(TaskTCB);
+        *ppxTimerTaskStackBuffer = addr_of_mut!(TaskStack.0[0]);
         *pulTimerTaskStackSize = configMINIMAL_STACK_SIZE;
     }
 }
